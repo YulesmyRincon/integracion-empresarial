@@ -1,0 +1,26 @@
+{
+  "name": "ue/integracion-empresarial",
+  "description": "Plataforma Web de Integración Empresarial (Slim + Eloquent + JWT + Swagger)",
+  "type": "project",
+  "require": {
+    "php": ">=8.1",
+    "slim/slim": "^4.10",
+    "slim/psr7": "^1.5",
+    "nyholm/psr7": "^1.5",
+    "illuminate/database": "^10.0",
+    "firebase/php-jwt": "^6.4",
+    "predis/predis": "^2.1",
+    "monolog/monolog": "^3.2",
+    "tuupola/slim-jwt-auth": "^3.8",
+    "zircote/swagger-php": "^4.6",
+    "vlucas/phpdotenv": "^5.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  },
+  "scripts": {
+    "start": "php -S 0.0.0.0:8080 -t public"
+  }
+}
