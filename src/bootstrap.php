@@ -1,16 +1,38 @@
 <?php
-require __DIR__ . '/../vendor/autoload.php';
+declare(strict_types=1);
 
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
+require_once __DIR__ . '/../vendor/autoload.php';
 
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->load();
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Predis\Client;
 
-// Conexión a MySQL
-try {
-    $pdo = new PDO("mysql:host={$_ENV['DB_HOST']};dbname={$_ENV['DB_NAME']}", $_ENV['DB_USER'], $_ENV['DB_PASS']);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch (Exception $e) {
-    die("Error de conexión: " . $e->getMessage());
-}
+// -------------------------------
+// Configuración Base de Datos (Eloquent ORM)
+// -------------------------------
+$capsule = new Capsule;
+
+$capsule->addConnection([
+    'driver'    => 'mysql',
+    'host'      => getenv('DB_HOST') ?: '127.0.0.1',
+    'database'  => getenv('DB_DATABASE') ?: 'empresa_db',
+    'username'  => getenv('DB_USERNAME') ?: 'root',
+    'password'  => getenv('DB_PASSWORD') ?: '',
+    'charset'   => 'utf8',
+    'collation' => 'utf8_unicode_ci',
+    'prefix'    => '',
+]);
+
+$capsule->setAsGlobal();
+$capsule->bootEloquent();
+
+// -------------------------------
+// Configuración Redis (Predis)
+// -------------------------------
+$redis = new Client([
+    'scheme' => 'tcp',
+    'host'   => getenv('REDIS_HOST') ?: 'redis', // en docker-compose se llama "redis"
+    'port'   => getenv('REDIS_PORT') ?: 6379,
+]);
+
+// Hacer Redis accesible en todo el proyecto
+$GLOBALS['redis_client'] = $redis;

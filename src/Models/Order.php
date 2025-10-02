@@ -4,7 +4,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Order extends Model {
     protected $table = 'orders';
-    protected $fillable = ['client_id','total','status'];
+    protected $fillable = ['user_id','status','total'];
     public $timestamps = true;
 
     public function items() {

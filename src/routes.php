@@ -1,46 +1,68 @@
 <?php
+declare(strict_types=1);
+
 use Slim\App;
 use App\Controllers\AuthController;
-use App\Controllers\ClientController;
 use App\Controllers\ProductController;
-use App\Controllers\OrderController;
-use Tuupola\Middleware\JwtAuthentication;
+use App\Middleware\AuthMiddleware;
+use App\Middleware\RoleMiddleware;
 
-return function(App $app) {
-    // Public auth
-    $app->post('/api/v1/auth/register', AuthController::class . ':register');
-    $app->post('/api/v1/auth/login', AuthController::class . ':login');
+return function (App $app) { 
+   
+// Rutas públicas de clientes
+// ----------------------------
 
-    // JWT middleware group
-    $app->group('/api/v1', function($group) {
-        // Clients
-        $group->get('/clients', ClientController::class . ':index');
-        $group->get('/clients/{id}', ClientController::class . ':show');
-        $group->post('/clients', ClientController::class . ':store');
-        $group->put('/clients/{id}', ClientController::class . ':update');
-        $group->delete('/clients/{id}', ClientController::class . ':delete');
+$app->get('/ping', function ($req, $res) {
+    $res->getBody()->write(json_encode(['pong' => true]));
+    return $res->withHeader('Content-Type', 'application/json');
+});
 
-        // Products
-        $group->get('/products', ProductController::class . ':index');
-        $group->get('/products/{id}', ProductController::class . ':show');
-        $group->post('/products', ProductController::class . ':store');
-        $group->put('/products/{id}', ProductController::class . ':update');
-        $group->delete('/products/{id}', ProductController::class . ':delete');
 
-        // Orders
-        $group->post('/orders', OrderController::class . ':store');
-        $group->get('/orders', OrderController::class . ':index');
-        $group->get('/orders/{id}', OrderController::class . ':show');
-    })->add(new JwtAuthentication([
-        "attribute" => "decoded_token_data",
-        "secret" => getenv('JWT_SECRET'),
-        "algorithm" => ["HS256"],
-        "secure" => false,
-        "relaxed" => ["localhost", "127.0.0.1"],
-        "error" => function ($response, $arguments) {
-            $data = ["error" => "Token error: " . $arguments["message"]];
-            $response->getBody()->write(json_encode($data));
-            return $response->withHeader("Content-Type", "application/json")->withStatus(401);
-        }
-    ]));
+// ----------------------------
+// Rutas protegidas de clientes
+// ----------------------------
+$app->group('/api/clients', function ($group) {
+    $group->post('', [ClientController::class, 'store']);
+    $group->put('/{id}', [ClientController::class, 'update']);
+    $group->delete('/{id}', [ClientController::class, 'delete']);
+})->add(new RoleMiddleware(['admin'])) // primero validar rol
+  ->add(new AuthMiddleware());         // luego validar token
+
+
+    // ----------------------------
+    // Rutas públicas de autenticación
+    // ----------------------------
+    $app->post('/api/login', [AuthController::class, 'login']);
+    $app->post('/api/register', [AuthController::class, 'register']);
+
+    // ----------------------------
+    // Rutas públicas de productos
+    // ----------------------------
+    $app->get('/api/products', [ProductController::class, 'index']);
+    $app->get('/api/products/{id}', [ProductController::class, 'show']);
+
+    // ----------------------------
+    // Rutas protegidas solo para ADMIN
+    // ----------------------------
+    $app->group('/api', function ($group) {
+        $group->post('/products', [ProductController::class, 'store']);
+        $group->put('/products/{id}', [ProductController::class, 'update']);
+        $group->delete('/products/{id}', [ProductController::class, 'destroy']);
+    })->add(new RoleMiddleware(['admin'])) // primero validar rol
+      ->add(new AuthMiddleware());         // luego validar token
+
+    // ----------------------------
+    // Ruta protegida para cualquier usuario autenticado
+    // ----------------------------
+    $app->get('/api/me', function ($req, $res) {
+        $user = $req->getAttribute('user'); // usuario inyectado por AuthMiddleware
+        $res->getBody()->write(json_encode($user));
+        return $res->withHeader('Content-Type', 'application/json');
+    })->add(new AuthMiddleware());
+
+    $app->get('/ping', function ($req, $res) {
+    $res->getBody()->write("pong 🚀");
+    return $res;
+});
+
 };

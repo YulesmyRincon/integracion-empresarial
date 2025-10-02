@@ -5,70 +5,66 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use App\Models\User;
 use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 
-/**
- * @OA\Post(
- *   path="/api/v1/auth/register",
- *   summary="Register a new user",
- *   @OA\RequestBody(@OA\JsonContent(
- *     required={"name","email","password"},
- *     @OA\Property(property="name", type="string"),
- *     @OA\Property(property="email", type="string"),
- *     @OA\Property(property="password", type="string")
- *   )),
- *   @OA\Response(response=201, description="Created")
- * )
- */
 class AuthController {
-    public function register(Request $req, Response $res) {
-        $data = (array)$req->getParsedBody();
-        if(empty($data['email']) || empty($data['password']) || empty($data['name'])) {
-            $res->getBody()->write(json_encode(['error'=>'Missing fields']));
-            return $res->withHeader('Content-Type','application/json')->withStatus(400);
-        }
-        if(User::where('email', $data['email'])->exists()) {
-            $res->getBody()->write(json_encode(['error'=>'Email exists']));
-            return $res->withHeader('Content-Type','application/json')->withStatus(400);
-        }
-        $user = User::create([
-            'name'=>$data['name'],
-            'email'=>$data['email'],
-            'password'=>password_hash($data['password'], PASSWORD_BCRYPT),
-            'role'=>$data['role'] ?? 'user'
-        ]);
-        $user->makeHidden(['password']);
-        $res->getBody()->write(json_encode(['user'=>$user]));
-        return $res->withHeader('Content-Type','application/json')->withStatus(201);
-    }
 
-    /**
-     * @OA\Post(
-     *   path="/api/v1/auth/login",
-     *   summary="Login",
-     *   @OA\RequestBody(@OA\JsonContent(
-     *     required={"email","password"},
-     *     @OA\Property(property="email", type="string"),
-     *     @OA\Property(property="password", type="string")
-     *   )),
-     *   @OA\Response(response=200, description="OK")
-     * )
-     */
-    public function login(Request $req, Response $res) {
-        $data = (array)$req->getParsedBody();
-        $user = User::where('email', $data['email'])->first();
-        if(!$user || !password_verify($data['password'], $user->password)) {
-            $res->getBody()->write(json_encode(['error'=>'Invalid credentials']));
-            return $res->withHeader('Content-Type','application/json')->withStatus(401);
+    public function login(Request $request, Response $response) {
+        $body = (array)$request->getParsedBody();
+        $email = $body['email'] ?? null;
+        $password = $body['password'] ?? null;
+
+        if (!$email || !$password) {
+            $response->getBody()->write(json_encode(['error' => 'Email and password required']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
+
+        $user = User::where('email', $email)->first();
+        if (!$user || !password_verify($password, $user->password)) {
+            $response->getBody()->write(json_encode(['error' => 'Invalid credentials']));
+            return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
+        }
+
+        $now = time();
         $payload = [
-            'iss' => getenv('APP_URL'),
+            'iat' => $now,
+            'exp' => $now + 3600, // 1h
             'sub' => $user->id,
             'role' => $user->role,
-            'iat' => time(),
-            'exp' => time() + intval(getenv('JWT_TTL'))
+            'email' => $user->email,
+            'name' => $user->name
         ];
-        $jwt = JWT::encode($payload, getenv('JWT_SECRET'), 'HS256');
-        $res->getBody()->write(json_encode(['token'=>$jwt,'user'=>['id'=>$user->id,'name'=>$user->name,'email'=>$user->email,'role'=>$user->role]]));
-        return $res->withHeader('Content-Type','application/json')->withStatus(200);
+
+        $jwt = JWT::encode($payload, getenv('JWT_SECRET') ?: 'change_me', 'HS256');
+
+        $response->getBody()->write(json_encode(['token' => $jwt, 'user' => ['id'=>$user->id,'email'=>$user->email,'name'=>$user->name, 'role'=>$user->role]]));
+        return $response->withHeader('Content-Type', 'application/json');
+    }
+
+    public function register(Request $request, Response $response) {
+        $body = (array)$request->getParsedBody();
+        $name = $body['name'] ?? null;
+        $email = $body['email'] ?? null;
+        $password = $body['password'] ?? null;
+
+        if (!$name || !$email || !$password) {
+            $response->getBody()->write(json_encode(['error' => 'Name, email and password required']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        if (User::where('email', $email)->exists()) {
+            $response->getBody()->write(json_encode(['error' => 'Email already registered']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        $user = User::create([
+            'name' => $name,
+            'email' => $email,
+            'password' => password_hash($password, PASSWORD_BCRYPT),
+            'role' => $body['role'] ?? 'user'
+        ]);
+
+        $response->getBody()->write(json_encode(['user' => $user]));
+        return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     }
 }

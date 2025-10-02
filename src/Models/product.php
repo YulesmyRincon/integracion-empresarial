@@ -1,9 +1,10 @@
 <?php
 namespace App\Models;
+
 use Illuminate\Database\Eloquent\Model;
 
 class Product extends Model {
     protected $table = 'products';
-    protected $fillable = ['sku','name','description','price','stock'];
+    protected $fillable = ['name','description','price','stock'];
     public $timestamps = true;
 }

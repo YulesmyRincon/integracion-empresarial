@@ -1,14 +1,17 @@
-version: "3.9"
+
+
 services:
   app:
     build: .
     container_name: php_app
-    ports:
-      - "8080:80"
     volumes:
       - .:/var/www/html
+    ports:
+      - "8080:80"
+      - "443:443"
     depends_on:
       - db
+      - redis
 
   db:
     image: mysql:8.0
@@ -16,13 +19,21 @@ services:
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: empresa
-      MYSQL_USER: admin
-      MYSQL_PASSWORD: admin123
+      MYSQL_DATABASE: empresa_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: pass
     ports:
-      - "3307:3306"
+      - "3306:3306"
     volumes:
+      - ./migrations:/docker-entrypoint-initdb.d
       - db_data:/var/lib/mysql
+
+  redis:
+    image: redis:6.2
+    container_name: redis_cache
+    restart: always
+    ports:
+      - "6379:6379"
 
 volumes:
   db_data:
