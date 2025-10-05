@@ -1,13 +1,36 @@
 <?php
 session_start();
 
+// ✅ Cargar variables del archivo .env
+$dotenvPath = __DIR__ . '/../.env';
+if (file_exists($dotenvPath)) {
+    $lines = file($dotenvPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) continue;
+        putenv($line);
+    }
+}
+
+// ✅ Verificar si ya está logueado
+if (isset($_SESSION['token'])) {
+    header("Location: dashboard.php");
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = $_POST['email'] ?? '';
     $password = $_POST['password'] ?? '';
 
-    $ch = curl_init("http://localhost:8080/api/login");
+    // Endpoint del login desde el .env (si existe) o valor por defecto
+    $apiUrl = getenv('APP_URL') . '/api/login';
+    if (!$apiUrl) $apiUrl = 'http://localhost:8080/api/login';
+
+    $ch = curl_init($apiUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(["email"=>$email,"password"=>$password]));
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+        "email" => $email,
+        "password" => $password
+    ]));
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
 
     $response = curl_exec($ch);
@@ -15,8 +38,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     curl_close($ch);
 
     $data = json_decode($response, true);
+
     if ($status === 200 && isset($data['token'])) {
         $_SESSION['token'] = $data['token'];
+        $_SESSION['role'] = $data['role'] ?? 'user'; // Guardar rol también
         header("Location: dashboard.php");
         exit;
     } else {
@@ -52,6 +77,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <button class="btn btn-primary w-100">Entrar</button>
           </form>
+          <div class="mt-3 text-center">
+            <a href="swagger/index.html" target="_blank">📖 Ver documentación API</a>
+          </div>
         </div>
       </div>
     </div>

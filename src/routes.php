@@ -3,31 +3,21 @@ declare(strict_types=1);
 
 use Slim\App;
 use App\Controllers\AuthController;
+use App\Controllers\ClientController;
 use App\Controllers\ProductController;
+use App\Controllers\OrderController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RoleMiddleware;
 
-return function (App $app) { 
-   
-// Rutas públicas de clientes
-// ----------------------------
+return function (App $app) {
 
-$app->get('/ping', function ($req, $res) {
-    $res->getBody()->write(json_encode(['pong' => true]));
-    return $res->withHeader('Content-Type', 'application/json');
-});
-
-
-// ----------------------------
-// Rutas protegidas de clientes
-// ----------------------------
-$app->group('/api/clients', function ($group) {
-    $group->post('', [ClientController::class, 'store']);
-    $group->put('/{id}', [ClientController::class, 'update']);
-    $group->delete('/{id}', [ClientController::class, 'delete']);
-})->add(new RoleMiddleware(['admin'])) // primero validar rol
-  ->add(new AuthMiddleware());         // luego validar token
-
+    // ----------------------------
+    // Ruta simple para probar si el servidor responde
+    // ----------------------------
+    $app->get('/ping', function ($req, $res) {
+        $res->getBody()->write(json_encode(['pong' => true, 'status' => 'ok']));
+        return $res->withHeader('Content-Type', 'application/json');
+    });
 
     // ----------------------------
     // Rutas públicas de autenticación
@@ -42,27 +32,40 @@ $app->group('/api/clients', function ($group) {
     $app->get('/api/products/{id}', [ProductController::class, 'show']);
 
     // ----------------------------
-    // Rutas protegidas solo para ADMIN
+    // Rutas públicas de clientes (solo lectura)
     // ----------------------------
-    $app->group('/api', function ($group) {
+    $app->get('/api/clients', [ClientController::class, 'index']);
+    $app->get('/api/clients/{id}', [ClientController::class, 'show']);
+
+    // ----------------------------
+    // Rutas protegidas solo para ADMIN (crear, editar, eliminar)
+    // ----------------------------
+    $app->group('/api/admin', function ($group) {
+        // CLIENTES
+        $group->post('/clients', [ClientController::class, 'store']);
+        $group->put('/clients/{id}', [ClientController::class, 'update']);
+        $group->delete('/clients/{id}', [ClientController::class, 'delete']);
+
+        // PRODUCTOS
         $group->post('/products', [ProductController::class, 'store']);
         $group->put('/products/{id}', [ProductController::class, 'update']);
         $group->delete('/products/{id}', [ProductController::class, 'destroy']);
-    })->add(new RoleMiddleware(['admin'])) // primero validar rol
-      ->add(new AuthMiddleware());         // luego validar token
+
+        // PEDIDOS
+        $group->post('/orders', [OrderController::class, 'store']);
+        $group->put('/orders/{id}', [OrderController::class, 'update']);
+        $group->delete('/orders/{id}', [OrderController::class, 'delete']);
+    })
+    ->add(new RoleMiddleware(['admin'])) // Primero valida rol
+    ->add(new AuthMiddleware());         // Luego valida token
 
     // ----------------------------
     // Ruta protegida para cualquier usuario autenticado
     // ----------------------------
     $app->get('/api/me', function ($req, $res) {
-        $user = $req->getAttribute('user'); // usuario inyectado por AuthMiddleware
+        $user = $req->getAttribute('user'); // Usuario decodificado del token
         $res->getBody()->write(json_encode($user));
         return $res->withHeader('Content-Type', 'application/json');
     })->add(new AuthMiddleware());
-
-    $app->get('/ping', function ($req, $res) {
-    $res->getBody()->write("pong 🚀");
-    return $res;
-});
 
 };

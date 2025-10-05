@@ -4,160 +4,145 @@ namespace App\Controllers;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use App\Models\Product;
+use Predis\Client as RedisClient;
 
 class ProductController {
 
-    private $redis;
+    /**
+     * @OA\Get(
+     *   path="/api/products",
+     *   summary="Listar productos",
+     *   tags={"Productos"},
+     *   @OA\Response(response=200, description="Lista de productos")
+     * )
+     */
+    public function index(Request $req, Response $res) {
+        $redis = new RedisClient([
+            'scheme' => 'tcp',
+            'host'   => $_ENV['REDIS_HOST'] ?? 'redis',
+            'port'   => $_ENV['REDIS_PORT'] ?? 6379,
+        ]);
 
-    public function __construct() {
-        $this->redis = $GLOBALS['redis_client'] ?? null;
-    }
-
-    // GET /api/products
-    public function index(Request $request, Response $response) {
-        try {
-            $params = $request->getQueryParams();
-            $page = max(1, (int)($params['page'] ?? 1));
-            $perPage = min(100, max(1, (int)($params['per_page'] ?? 10)));
-            $cacheKey = "products:page:{$page}:per:{$perPage}";
-
-            // Cache Redis
-            if ($this->redis) {
-                $cached = $this->redis->get($cacheKey);
-                if ($cached) {
-                    $response->getBody()->write($cached);
-                    return $response->withHeader('Content-Type', 'application/json');
-                }
-            }
-
-            // DB query
-            $query = Product::query();
-            $total = $query->count();
-            $products = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
-
-            $payload = [
-                'data' => $products,
-                'meta' => [
-                    'total' => $total,
-                    'page' => $page,
-                    'per_page' => $perPage
-                ]
-            ];
-
-            $json = json_encode($payload);
-
-            // Guardar en cache
-            if ($this->redis) {
-                $this->redis->setex($cacheKey, 60, $json);
-            }
-
-            $response->getBody()->write($json);
-            return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Throwable $e) {
-            return $this->errorResponse($response, $e->getMessage());
+        $cacheKey = 'products:list';
+        $cached = $redis->get($cacheKey);
+        if ($cached) {
+            $res->getBody()->write($cached);
+            return $res->withHeader('Content-Type','application/json');
         }
+
+        $products = Product::orderBy('name')->get();
+        $json = $products->toJson();
+        $redis->setex($cacheKey, 60, $json);
+
+        $res->getBody()->write($json);
+        return $res->withHeader('Content-Type','application/json');
     }
 
-    // GET /api/products/{id}
-    public function show(Request $request, Response $response, $args) {
-        try {
-            $id = (int)$args['id'];
-            $product = Product::find($id);
-
-            if (!$product) {
-                return $this->errorResponse($response, 'Product not found', 404);
-            }
-
-            $response->getBody()->write($product->toJson());
-            return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Throwable $e) {
-            return $this->errorResponse($response, $e->getMessage());
+    /**
+     * @OA\Get(
+     *   path="/api/products/{id}",
+     *   summary="Obtener producto por ID",
+     *   tags={"Productos"},
+     *   @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *   @OA\Response(response=200, description="Producto encontrado"),
+     *   @OA\Response(response=404, description="Producto no encontrado")
+     * )
+     */
+    public function show(Request $req, Response $res, $args) {
+        $product = Product::find($args['id']);
+        if (!$product) {
+            $res->getBody()->write(json_encode(['error'=>'Not found']));
+            return $res->withStatus(404)->withHeader('Content-Type','application/json');
         }
+        $res->getBody()->write($product->toJson());
+        return $res->withHeader('Content-Type','application/json');
     }
 
-    // POST /api/products
-    public function store(Request $request, Response $response) {
-        try {
-            $data = (array)$request->getParsedBody();
-            $product = Product::create([
-                'name' => $data['name'] ?? 'Untitled',
-                'description' => $data['description'] ?? '',
-                'price' => $data['price'] ?? 0,
-                'stock' => $data['stock'] ?? 0
-            ]);
+    /**
+     * @OA\Post(
+     *   path="/api/products",
+     *   summary="Crear producto",
+     *   tags={"Productos"},
+     *   security={{"bearerAuth":{}}},
+     *   @OA\RequestBody(
+     *     required=true,
+     *     @OA\JsonContent(
+     *       required={"name","price"},
+     *       @OA\Property(property="name", type="string"),
+     *       @OA\Property(property="price", type="number", format="float"),
+     *       @OA\Property(property="stock", type="integer")
+     *     )
+     *   ),
+     *   @OA\Response(response=201, description="Producto creado")
+     * )
+     */
+    public function store(Request $req, Response $res) {
+        $data = (array)$req->getParsedBody();
+        $product = Product::create($data);
 
-            $this->clearCache();
+        $redis = new RedisClient(['host' => $_ENV['REDIS_HOST'] ?? 'redis']);
+        $redis->del(['products:list']);
 
-            $response->getBody()->write($product->toJson());
-            return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+        $res->getBody()->write($product->toJson());
+        return $res->withStatus(201)->withHeader('Content-Type','application/json');
+    }
 
-        } catch (\Throwable $e) {
-            return $this->errorResponse($response, $e->getMessage());
+    /**
+     * @OA\Put(
+     *   path="/api/products/{id}",
+     *   summary="Actualizar producto",
+     *   tags={"Productos"},
+     *   security={{"bearerAuth":{}}},
+     *   @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *   @OA\RequestBody(
+     *     required=true,
+     *     @OA\JsonContent(
+     *       @OA\Property(property="name", type="string"),
+     *       @OA\Property(property="price", type="number", format="float"),
+     *       @OA\Property(property="stock", type="integer")
+     *     )
+     *   ),
+     *   @OA\Response(response=200, description="Producto actualizado"),
+     *   @OA\Response(response=404, description="Producto no encontrado")
+     * )
+     */
+    public function update(Request $req, Response $res, $args) {
+        $product = Product::find($args['id']);
+        if (!$product) {
+            $res->getBody()->write(json_encode(['error'=>'Not found']));
+            return $res->withStatus(404)->withHeader('Content-Type','application/json');
         }
+        $product->update((array)$req->getParsedBody());
+
+        $redis = new RedisClient(['host' => $_ENV['REDIS_HOST'] ?? 'redis']);
+        $redis->del(['products:list']);
+
+        $res->getBody()->write($product->toJson());
+        return $res->withHeader('Content-Type','application/json');
     }
 
-    // PUT /api/products/{id}
-    public function update(Request $request, Response $response, $args) {
-        try {
-            $id = (int)$args['id'];
-            $product = Product::find($id);
-
-            if (!$product) {
-                return $this->errorResponse($response, 'Product not found', 404);
-            }
-
-            $data = (array)$request->getParsedBody();
-            $product->fill($data);
-            $product->save();
-
-            $this->clearCache();
-
-            $response->getBody()->write($product->toJson());
-            return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Throwable $e) {
-            return $this->errorResponse($response, $e->getMessage());
+    /**
+     * @OA\Delete(
+     *   path="/api/products/{id}",
+     *   summary="Eliminar producto",
+     *   tags={"Productos"},
+     *   security={{"bearerAuth":{}}},
+     *   @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *   @OA\Response(response=204, description="Producto eliminado"),
+     *   @OA\Response(response=404, description="Producto no encontrado")
+     * )
+     */
+    public function destroy(Request $req, Response $res, $args) {
+        $product = Product::find($args['id']);
+        if (!$product) {
+            $res->getBody()->write(json_encode(['error'=>'Not found']));
+            return $res->withStatus(404)->withHeader('Content-Type','application/json');
         }
-    }
+        $product->delete();
 
-    // DELETE /api/products/{id}
-    public function destroy(Request $request, Response $response, $args) {
-        try {
-            $id = (int)$args['id'];
-            $product = Product::find($id);
+        $redis = new RedisClient(['host' => $_ENV['REDIS_HOST'] ?? 'redis']);
+        $redis->del(['products:list']);
 
-            if (!$product) {
-                return $this->errorResponse($response, 'Product not found', 404);
-            }
-
-            $product->delete();
-            $this->clearCache();
-
-            $response->getBody()->write(json_encode(['success' => true]));
-            return $response->withHeader('Content-Type', 'application/json');
-
-        } catch (\Throwable $e) {
-            return $this->errorResponse($response, $e->getMessage());
-        }
-    }
-
-    // ------------------------
-    // Helpers
-    // ------------------------
-    private function clearCache() {
-        if ($this->redis) {
-            $keys = $this->redis->keys('products:*');
-            foreach ($keys as $k) {
-                $this->redis->del($k);
-            }
-        }
-    }
-
-    private function errorResponse(Response $response, string $message, int $status = 500) {
-        $payload = json_encode(['error' => $message]);
-        $response->getBody()->write($payload);
-        return $response->withStatus($status)->withHeader('Content-Type', 'application/json');
+        return $res->withStatus(204)->withHeader('Content-Type','application/json');
     }
 }
